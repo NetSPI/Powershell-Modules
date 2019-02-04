@@ -43,8 +43,10 @@ function Get-MSSQLLinkPasswords{
 
   # Set local computername and get all SQL Server instances
   $ComputerName = $Env:computername
-  $SqlInstances = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server' -Name InstalledInstances).InstalledInstances
-  
+  $SqlInstances = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server' -Name InstalledInstances -ErrorAction SilentlyContinue).InstalledInstances
+  if($null -eq $SqlInstances) {
+    Write-Output "`nNo instances were found on [$ComputerName]`n"
+  }
   $Results = New-Object "System.Data.DataTable"
   $Results.Columns.Add("Instance") | Out-Null
   $Results.Columns.Add("Linkserver") | Out-Null
@@ -73,7 +75,9 @@ function Get-MSSQLLinkPasswords{
   
     Try{$Conn.Open();}
     Catch{
-      Write-Error "Error creating DAC connection: $_.Exception.Message"
+      $errorMessage = "Error creating DAC connection:`n "+$_.Exception.Message
+      $errorMessage = $errorMessage + "`nAttemped to connect using`n$ConnString`n"
+      Write-Error -Category ConnectionError $errorMessage
       Continue
     }
     if ($Conn.State -eq "Open") {
