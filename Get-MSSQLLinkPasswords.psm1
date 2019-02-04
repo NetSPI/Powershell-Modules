@@ -52,7 +52,15 @@ function Get-MSSQLLinkPasswords{
   $Results.Columns.Add("Password") | Out-Null
   
   foreach ($InstanceName in $SqlInstances) {
-  
+    $ClusterName = ''
+    # When this instance is running on a Cluster
+    $InstanceRegistry = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL" -Name $InstanceName -ErrorAction SilentlyContinue).$InstanceName
+    if($InstanceRegistry -ne '') {
+      $ClusterName = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$InstanceRegistry\Cluster" -Name ClusterName -ErrorAction SilentlyContinue).ClusterName
+      if($null -ne $ClusterName) {
+        $ComputerName = $ClusterName
+      }
+    }
     # Start DAC connection to SQL Server
     # Default instance MSSQLSERVER -> instance name cannot be used in connection string
     if ($InstanceName -eq "MSSQLSERVER") {
@@ -68,7 +76,18 @@ function Get-MSSQLLinkPasswords{
       Write-Error "Error creating DAC connection: $_.Exception.Message"
       Continue
     }
-    if ($Conn.State -eq "Open"){
+    if ($Conn.State -eq "Open") {
+      # When on a cluster, checks if the code is running on the same node as the instance
+      if($ClusterName -ne '') {
+        $SqlCmd = "SELECT ISNULL(SERVERPROPERTY('ComputerNamePhysicalNetBIOS'),'$Env:computername')"
+        $Cmd = New-Object System.Data.SqlClient.SqlCommand($SqlCmd, $Conn);
+        $ComputerNamePhysicalNetBIOS = $Cmd.ExecuteScalar()
+        $ThisNode = $Env:computername
+        if($ComputerNamePhysicalNetBIOS -ne $ThisNode) {
+          $Conn.Close();
+          Continue
+        }
+      }
       # Query Service Master Key from the database - remove padding from the key
       # key_id 102 eq service master key, thumbprint 3 means encrypted with machinekey
       $SqlCmd="SELECT substring(crypt_property,9,datalength(crypt_property)-8) FROM master.sys.key_encryptions WHERE key_id=102 and (thumbprint=0x03 or thumbprint=0x0300000001)"
