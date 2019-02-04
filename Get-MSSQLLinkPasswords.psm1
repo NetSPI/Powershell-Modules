@@ -71,7 +71,7 @@ function Get-MSSQLLinkPasswords{
     if ($Conn.State -eq "Open"){
       # Query Service Master Key from the database - remove padding from the key
       # key_id 102 eq service master key, thumbprint 3 means encrypted with machinekey
-      $SqlCmd="SELECT substring(crypt_property,9,datalength(crypt_property)-8) FROM sys.key_encryptions WHERE key_id=102 and (thumbprint=0x03 or thumbprint=0x0300000001)"
+      $SqlCmd="SELECT substring(crypt_property,9,datalength(crypt_property)-8) FROM master.sys.key_encryptions WHERE key_id=102 and (thumbprint=0x03 or thumbprint=0x0300000001)"
       $Cmd = New-Object System.Data.SqlClient.SqlCommand($SqlCmd,$Conn);
       $SmkBytes=$Cmd.ExecuteScalar()
     
