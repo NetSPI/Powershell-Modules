@@ -43,8 +43,10 @@ function Get-MSSQLLinkPasswords{
 
   # Set local computername and get all SQL Server instances
   $ComputerName = $Env:computername
-  $SqlInstances = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server' -Name InstalledInstances).InstalledInstances
-  
+  $SqlInstances = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server' -Name InstalledInstances -ErrorAction SilentlyContinue).InstalledInstances
+  if($null -eq $SqlInstances) {
+    Write-Output "`nNo instances were found on [$ComputerName]`n"
+  }
   $Results = New-Object "System.Data.DataTable"
   $Results.Columns.Add("Instance") | Out-Null
   $Results.Columns.Add("Linkserver") | Out-Null
@@ -52,7 +54,15 @@ function Get-MSSQLLinkPasswords{
   $Results.Columns.Add("Password") | Out-Null
   
   foreach ($InstanceName in $SqlInstances) {
-  
+    $ClusterName = ''
+    # When this instance is running on a Cluster
+    $InstanceRegistry = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL" -Name $InstanceName -ErrorAction SilentlyContinue).$InstanceName
+    if($InstanceRegistry -ne '') {
+      $ClusterName = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$InstanceRegistry\Cluster" -Name ClusterName -ErrorAction SilentlyContinue).ClusterName
+      if($null -ne $ClusterName) {
+        $ComputerName = $ClusterName
+      }
+    }
     # Start DAC connection to SQL Server
     # Default instance MSSQLSERVER -> instance name cannot be used in connection string
     if ($InstanceName -eq "MSSQLSERVER") {
@@ -65,13 +75,26 @@ function Get-MSSQLLinkPasswords{
   
     Try{$Conn.Open();}
     Catch{
-      Write-Error "Error creating DAC connection: $_.Exception.Message"
+      $errorMessage = "Error creating DAC connection:`n "+$_.Exception.Message
+      $errorMessage = $errorMessage + "`nAttemped to connect using`n$ConnString`n"
+      Write-Error -Category ConnectionError $errorMessage
       Continue
     }
-    if ($Conn.State -eq "Open"){
+    if ($Conn.State -eq "Open") {
+      # When on a cluster, checks if the code is running on the same node as the instance
+      if($ClusterName -ne '') {
+        $SqlCmd = "SELECT ISNULL(SERVERPROPERTY('ComputerNamePhysicalNetBIOS'),'$Env:computername')"
+        $Cmd = New-Object System.Data.SqlClient.SqlCommand($SqlCmd, $Conn);
+        $ComputerNamePhysicalNetBIOS = $Cmd.ExecuteScalar()
+        $ThisNode = $Env:computername
+        if($ComputerNamePhysicalNetBIOS -ne $ThisNode) {
+          $Conn.Close();
+          Continue
+        }
+      }
       # Query Service Master Key from the database - remove padding from the key
       # key_id 102 eq service master key, thumbprint 3 means encrypted with machinekey
-      $SqlCmd="SELECT substring(crypt_property,9,len(crypt_property)-8) FROM sys.key_encryptions WHERE key_id=102 and (thumbprint=0x03 or thumbprint=0x0300000001)"
+      $SqlCmd="SELECT substring(crypt_property,9,datalength(crypt_property)-8) FROM master.sys.key_encryptions WHERE key_id=102 and (thumbprint=0x03 or thumbprint=0x0300000001)"
       $Cmd = New-Object System.Data.SqlClient.SqlCommand($SqlCmd,$Conn);
       $SmkBytes=$Cmd.ExecuteScalar()
     
@@ -97,7 +120,7 @@ function Get-MSSQLLinkPasswords{
         # Remove header from pwdhash, extract IV (as iv) and ciphertext (as pass)
 	    # Ignore links with blank credentials (integrated auth ?)
         $SqlCmd = "SELECT sysservers.srvname,syslnklgns.name,substring(syslnklgns.pwdhash,5,$ivlen) iv,substring(syslnklgns.pwdhash,$($ivlen+5),
-	    len(syslnklgns.pwdhash)-$($ivlen+4)) pass FROM master.sys.syslnklgns inner join master.sys.sysservers on syslnklgns.srvid=sysservers.srvid WHERE len(pwdhash)>0"
+        datalength(syslnklgns.pwdhash)-$($ivlen+4)) pass FROM master.sys.syslnklgns inner join master.sys.sysservers on syslnklgns.srvid=sysservers.srvid WHERE datalength(pwdhash)>0"
         $Cmd = New-Object System.Data.SqlClient.SqlCommand($SqlCmd,$Conn);
 	    $Data=$Cmd.ExecuteReader()
         $Dt = New-Object "System.Data.DataTable"
