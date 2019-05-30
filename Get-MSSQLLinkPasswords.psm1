@@ -41,8 +41,7 @@ function Get-MSSQLLinkPasswords{
   Add-Type -assembly System.Security
   Add-Type -assembly System.Core
 
-  # Set local computername and get all SQL Server instances
-  $ComputerName = $Env:computername
+  # get all SQL Server instances
   $SqlInstances = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server' -Name InstalledInstances).InstalledInstances
   
   $Results = New-Object "System.Data.DataTable"
@@ -52,7 +51,15 @@ function Get-MSSQLLinkPasswords{
   $Results.Columns.Add("Password") | Out-Null
   
   foreach ($InstanceName in $SqlInstances) {
-  
+    $instance_name_entry = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL' -Name $InstanceName).$InstanceName   
+    # we can only get the cluster name if this instance is clustered
+    $cluster = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$instance_name_entry\Cluster" -Name 'ClusterName').ClusterName     2> $null
+    if ($cluster) {
+      $ComputerName = $cluster      
+    } else {
+     $ComputerName = $env:COMPUTERNAME
+    }
+
     # Start DAC connection to SQL Server
     # Default instance MSSQLSERVER -> instance name cannot be used in connection string
     if ($InstanceName -eq "MSSQLSERVER") {
